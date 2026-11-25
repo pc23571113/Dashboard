@@ -43,7 +43,7 @@ table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;whit
 <section class="panel"><h2>各年最後一筆收盤報酬</h2><div class="scroll" id="table"></div></section>
 <footer class="notes">
 <p>ROI 倍數 = 當日收盤價 ÷ 上一年最後交易日收盤價。各年交易日依月日對齊，2 月 29 日保留獨立位置。當年曲線止於最新可用收盤。缺少上一年底基準價的年份無法勾選。</p>
-<p>白色虛線為目前所選年份的同月日算術平均。休市沿用前一收盤，年初首筆收盤前以 1.00× 計。當年只納入至最新收盤。</p>
+<p>白色虛線為目前所選年份的同月日算術平均。休市沿用前一收盤，年初首筆收盤前以 1.00× 計。平均僅納入已結束的年份。只有選擇當年時，不顯示平均線。</p>
 <p>各資產採原幣價格。股票與 ETF 採分割調整收盤價，未計現金配息再投資與匯率。黃金現貨使用美元／金衡盎司報價，黃金期貨使用 GC=F 連續報價。NASDAQ 使用綜合指數（^IXIC）。</p>
 <p>S&amp;P 500 在 1957 年前使用資料來源提供的前身序列。比特幣 2010–2014 年採 Coin Metrics，2015 年起採 Yahoo Finance，2015 年 YTD 的年末基準來自 Coin Metrics。</p>
 <p>黃金現貨歷史序列由 GoldPrice.com 整理，早期採倫敦定盤，後續採 Metals.dev 日收盤。</p>
@@ -112,13 +112,13 @@ function pointAt(points,index) {
   }
   return points[low-1] ?? null;
 }
-function averageSeries(series, activeYear) {
+function averageSeries(series, calendarYear) {
+  const completed = series.filter(([year])=>year<calendarYear);
   // Each year contributes at most one close per calendar date.
   return Array.from({length:366},(_,index)=>{
     let sum=0, count=0;
-    for (const [year,points] of series) {
+    for (const [,points] of completed) {
       const last=points.at(-1);
-      if (year===activeYear && index>last.index) continue;
       const point=pointAt(points,index) ?? (index>last.index?last:null);
       sum+=point?.ratio ?? 1;
       count++;
@@ -129,7 +129,8 @@ function averageSeries(series, activeYear) {
 function draw() {
   const {asset,available,selected}=getState();
   const series=[...available].filter(([year])=>selected.has(year));
-  const average=averageSeries(series,currentYear);
+  const calendarYear=Number(new Intl.DateTimeFormat('en',{year:'numeric',timeZone:'Asia/Taipei'}).format(new Date()));
+  const average=averageSeries(series,calendarYear);
   const availableYears=[...available.keys()];
   $('status').textContent=asset.name+' · 可比較 '+availableYears.at(-1)+'–'+availableYears[0]+' 年 · 最新收盤 '+asset.rows.at(-1)[0];
   $('chart-title').textContent=asset.name+' · Year-to-Date ROI';
