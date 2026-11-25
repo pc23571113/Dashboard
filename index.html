@@ -37,11 +37,13 @@ table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;whit
 <div class="year-tools"><strong>比較年份</strong><button id="all" type="button">全選</button><button id="none" type="button">清除</button></div>
 <div class="legend" id="legend" aria-label="比較年份"></div>
 <div class="scroll"><div id="chart"></div></div>
+<p style="margin-bottom:8px"><span aria-hidden="true" style="display:inline-block;width:24px;border-top:2px dashed white;vertical-align:middle;margin-right:8px"></span>所選年份平均 YTD</p>
 <div id="detail" aria-live="polite"></div>
 </section>
 <section class="panel"><h2>各年最後一筆收盤報酬</h2><div class="scroll" id="table"></div></section>
 <footer class="notes">
 <p>ROI 倍數 = 當日收盤價 ÷ 上一年最後交易日收盤價。各年交易日依月日對齊，2 月 29 日保留獨立位置。當年曲線止於最新可用收盤。缺少上一年底基準價的年份無法勾選。</p>
+<p>白色虛線為目前所選年份的同月日算術平均。休市沿用前一收盤，年初首筆收盤前以 1.00× 計。當年只納入至最新收盤。</p>
 <p>各資產採原幣價格。股票與 ETF 採分割調整收盤價，未計現金配息再投資與匯率。黃金現貨使用美元／金衡盎司報價，黃金期貨使用 GC=F 連續報價。NASDAQ 使用綜合指數（^IXIC）。</p>
 <p>S&amp;P 500 在 1957 年前使用資料來源提供的前身序列。比特幣 2010–2014 年採 Coin Metrics，2015 年起採 Yahoo Finance，2015 年 YTD 的年末基準來自 Coin Metrics。</p>
 <p>黃金現貨歷史序列由 GoldPrice.com 整理，早期採倫敦定盤，後續採 Metals.dev 日收盤。</p>
@@ -110,9 +112,24 @@ function pointAt(points,index) {
   }
   return points[low-1] ?? null;
 }
+function averageSeries(series, activeYear) {
+  // Each year contributes at most one close per calendar date.
+  return Array.from({length:366},(_,index)=>{
+    let sum=0, count=0;
+    for (const [year,points] of series) {
+      const last=points.at(-1);
+      if (year===activeYear && index>last.index) continue;
+      const point=pointAt(points,index) ?? (index>last.index?last:null);
+      sum+=point?.ratio ?? 1;
+      count++;
+    }
+    return count?{index,ratio:sum/count,count}:null;
+  });
+}
 function draw() {
   const {asset,available,selected}=getState();
   const series=[...available].filter(([year])=>selected.has(year));
+  const average=averageSeries(series,currentYear);
   const availableYears=[...available.keys()];
   $('status').textContent=asset.name+' · 可比較 '+availableYears.at(-1)+'–'+availableYears[0]+' 年 · 最新收盤 '+asset.rows.at(-1)[0];
   $('chart-title').textContent=asset.name+' · Year-to-Date ROI';
@@ -139,10 +156,11 @@ function draw() {
   $('all').disabled=selected.size===available.size;
   $('none').disabled=selected.size===0;
   $('download').disabled=selected.size===0;
-  $('detail').textContent=series.length?'移動游標、點選圖表或按方向鍵，查看同一月日的各年報酬。':'勾選年份後即可比較走勢。';
+  $('detail').textContent='移動游標、點選圖表或按方向鍵，查看同一月日的報酬與所選年份平均。';
   const log=$('scale').value==='log';
   const transform=ratio=>log?Math.log(ratio):ratio;
   const values=series.flatMap(([,points])=>points.map(p=>transform(p.ratio)));
+  for (const point of average) if (point) values.push(transform(point.ratio));
   const baseline=transform(1);
   const low=Math.min(baseline,...values), high=Math.max(baseline,...values);
   const padding=(high-low || .1)*.075;
@@ -168,11 +186,15 @@ function draw() {
     chart.append(svg('path',{d:path,fill:'none',stroke:color,'stroke-width':year===currentYear?3:1.9}),
       svg('circle',{cx:x(last.index),cy:y(transform(last.ratio)),r:3,fill:color}));
   }
+  const averagePath=average.filter(Boolean).map((p,i)=>
+    (i?'L':'M')+x(p.index)+','+y(transform(p.ratio))
+  ).join('');
+  if (averagePath) chart.append(svg('path',{d:averagePath,fill:'none',stroke:'#fff','stroke-width':2.4,
+    'stroke-dasharray':'7 5','aria-label':'所選年份平均 YTD'}));
   const guide=svg('line',{y1:top,y2:bottom,stroke:'#a5b4ca','stroke-dasharray':'3 4',visibility:'hidden'});
   chart.append(guide);
   let index=0;
   function inspect(value) {
-    if (!series.length) return;
     index=Math.min(365,Math.max(0,Math.round(value)));
     for (const attr of ['x1','x2']) guide.setAttribute(attr,x(index));
     guide.setAttribute('visibility','visible');
@@ -185,7 +207,11 @@ function draw() {
     });
     const caption=document.createElement('strong');
     caption.textContent=localeDate(index);
-    $('detail').replaceChildren(caption,...readings);
+    const mean=average[index];
+    const averageReading=document.createElement('span');
+    averageReading.style.color='#fff';
+    averageReading.textContent=mean?'所選年份平均 '+display(mean.ratio)+'（'+mean.count+' 年）':'所選年份平均 —';
+    $('detail').replaceChildren(caption,averageReading,...readings);
   }
   function inspectPointer(event) {
     const bounds=chart.getBoundingClientRect();
